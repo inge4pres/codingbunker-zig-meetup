@@ -70,6 +70,8 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
+        // Allow passing filters to the test subcommand using build args.
+        .filters = b.args orelse &[0][]const u8{},
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
