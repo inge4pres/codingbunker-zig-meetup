@@ -5,23 +5,21 @@
 // Import the standard library
 const std = @import("std");
 
+// mutability
 test "const and var" {
     const a: i32 = 42;
 
-    const b = &a;
+    const b = a;
     var c = &a;
 
     std.debug.print("a is {}, b is {}, c is {}\n", .{ @TypeOf(a), @TypeOf(b), @TypeOf(c) });
 
-    b = undefined;
+    b = c;
+    c.* = 73;
     c = undefined;
 }
 
-test "enums" {
-    const dog = Pet.Dog;
-    const parrot = Pet.Parrot;
-    std.debug.print("dog says {s}, parrot replies {s}\n", .{ dog.sound(), parrot.sound() });
-}
+// enums and ADTs
 
 /// Pet defines tha animals that can be domesticated.
 const Pet = enum {
@@ -30,13 +28,13 @@ const Pet = enum {
     Parrot,
     Lizard,
 
-    /// Display the sound of each pet
+    /// Display the sound of each pet.
+    // Enums can have methods.
     fn sound(p: Pet) []const u8 {
         return switch (p) {
             Pet.Dog => "woof",
             Pet.Cat => "meow",
             Pet.Parrot => "squawk",
-            Pet.Lizard => "hiss",
         };
     }
 };
@@ -55,6 +53,12 @@ const Feeding = union(Pet) {
     Lizard: f32,
 };
 
+test "enums" {
+    const dog = Pet.Dog;
+    const parrot = Pet.Parrot;
+    std.debug.print("dog says {s}, parrot replies {s}\n", .{ dog.sound(), parrot.sound() });
+}
+
 test "optionals" {
     const a: ?i32 = 42;
     const b: ?i32 = null;
@@ -62,14 +66,13 @@ test "optionals" {
     // unwraps the optional into "value" if it is not null
     if (a) |value| {
         std.debug.print("a is {}\n", .{value});
-    } else {
-        std.debug.print("a is null\n", .{});
-    }
+    } else std.debug.print("a is null\n", .{});
+
     // specifically for printing, we can rely on '?'' or 'any'
     std.debug.print("a is {?}, b is {?}\n", .{ a, b });
 
-    try std.testing.expect(b == null);
-    try std.testing.expectEqual(42, b orelse 42);
+    const defaultVal = b orelse 42;
+    try std.testing.expectEqual(42, defaultVal);
 }
 
 test "defer and errdefer" {
@@ -87,7 +90,23 @@ test "defer and errdefer" {
     try std.testing.expectEqual(0, a);
 }
 
-// Error handling
+/// DotFileError is the set of errors that can occur when creating a dot file.
+// Define an error set, merging custom errors with standard library errors.
+const DotFileError = error{ InvalidName, InvalidPath } || std.fs.File.OpenError;
+
+fn createDotFile(comptime name: []const u8, comptime directory: []const u8) DotFileError!void {
+    if (name[0] != '.') {
+        return DotFileError.InvalidName;
+    }
+    // we are not interested in the file returned
+    _ = try std.fs.createFileAbsolute(
+        directory ++ std.fs.path.sep_str ++ name,
+        // An error is returned if the file already exists
+        .{ .exclusive = true },
+    );
+}
+
+// deomnstrate error handling
 test "results" {
     const out = try std.fmt.allocPrint(
         std.testing.allocator,
@@ -98,13 +117,15 @@ test "results" {
 
     try std.testing.expectEqualStrings(out, "42 is the meaning of life\n");
 
-    const result = createDotFile("should_fail", "/tmp");
+    const result = createDotFile("will_fail", "/tmp");
     try std.testing.expectError(DotFileError.InvalidName, result);
 
-    try createDotFile(".some_config", "/tmp"); // works, and we need to cleanup the file after the test
+    // works, and we need to cleanup the file after the test
+    try createDotFile(".some_config", "/tmp");
     defer std.fs.deleteFileAbsolute("/tmp/.some_config") catch unreachable;
 
-    const duped = createDotFile(".some_config", "/tmp"); // assert failure
+    // assert failure
+    const duped = createDotFile(".some_config", "/tmp");
     try std.testing.expectError(std.fs.File.OpenError.PathAlreadyExists, duped);
 
     // we can switch on the error type if the error set is defined
@@ -113,27 +134,12 @@ test "results" {
         else => |err| std.debug.print("catch   | filesystem error: {?}\n", .{err}),
     };
 
-    // unwrapping function errors equally as above, with a different syntax based on if/else
+    // unwrapping function error(s) equally as above, with a different syntax based on if/else.
     // the if branch can capture the returned successful value
     if (createDotFile(".some_config", "/tmp")) |_| {} else |e| switch (e) {
         error.InvalidName => std.debug.print("wrong input: {?}\n", .{e}),
         else => |err| std.debug.print("if else | filesystem error: {?}\n", .{err}),
     }
-}
-
-/// DotFileError is the set of errors that can occur when creating a dot file.
-// Define an error set, merging custom errors with standard library errors.
-const DotFileError = error{ InvalidName, InvalidPath } || std.fs.File.OpenError;
-
-fn createDotFile(comptime name: []const u8, comptime directory: []const u8) DotFileError!void {
-    if (name[0] != '.') {
-        return DotFileError.InvalidName;
-    }
-    _ = try std.fs.createFileAbsolute(
-        directory ++ std.fs.path.sep_str ++ name,
-        // An error is returned if the file already exists
-        .{ .exclusive = true },
-    );
 }
 
 // "threadlocal" allows declaring a variable that is unique to each thread.
@@ -151,7 +157,34 @@ test "threadlocal" {
 }
 
 fn localAddOne(baseVal: u6) void {
-    // All 3 threads refer to this variable, but each one modifies its own copy.
+    // All 3 threads refer to the same variable, but each one modifies its own copy.
     local += 1;
     std.testing.expectEqual(baseVal + 1, local) catch unreachable;
+}
+
+// packed structs allow defining memory layout for a struct.
+
+/// Coordinates is a point in 2D positive coordinates space.
+const Coordinates = packed struct {
+    x: u16,
+    y: u16,
+};
+
+test "packed struct" {
+    const point = Coordinates{ .x = 4, .y = 2 };
+
+    // in binary, 4 and 2
+    const val: [2]u16 = .{ 0b100, 0b10 };
+    // @bitCast converts the binary represnetation into a type,
+    // the inferred type is on the left side
+    const binPoint: Coordinates = @bitCast(val);
+
+    // same as above, reading from memory
+    // binary encoding for free!
+    const binPointFromMem: Coordinates = @bitCast(std.mem.toBytes(point));
+
+    // the entire struct fits into 4 bytes
+    try std.testing.expectEqual(4, @sizeOf(Coordinates));
+    try std.testing.expectEqualDeep(point, binPoint);
+    try std.testing.expectEqualDeep(point, binPointFromMem);
 }

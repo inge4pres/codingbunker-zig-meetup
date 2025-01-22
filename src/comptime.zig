@@ -5,10 +5,12 @@ test "comptime assert" {
     const b = 2;
     const c: comptime_int = a + b;
 
-    // This will fail at compile time
+    // This will fail at compile time if c != 3;
     try comptime std.testing.expectEqual(c, 3);
 }
 
+// When a test is named exactly as the struct or function it tests, it is called a "doctest".
+// It will appear in the rendered documentation.
 test Observer {
     var counter = Observer(u128){ .inner = 0 };
     counter.update(&counterIncr);
@@ -34,7 +36,7 @@ pub fn counterIncr(value: u128) u128 {
     return add(u128, value, 1);
 }
 
-// Pure generic function
+// Pure generic function.
 fn add(comptime T: type, value: T, delta: T) T {
     return value + delta;
 }
